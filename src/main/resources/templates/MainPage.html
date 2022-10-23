@@ -1,0 +1,299 @@
+<!-- Font is Amble taken from fontsquirrel.com-->
+
+<!DOCTYPE html>
+<script type="text/javascript">
+
+let linePadding = 20;
+
+let buttonPadding = 40;
+
+let textFadeInSpeed = 0.005;
+
+let currentlyWriting = false;
+
+const styleText = "position: absolute; bottom: -120px; left: 120px; transition: bottom 2s; transition-timing-function: cubic-bezier(0.1,1,0.1,1); margin-right: 320px; margin-bottom: 24px; margin-top: 24px;";
+let dialogueIndex = 0;
+let dialogueArray = [
+"The fog of sleep slowly disapates, fanned away by the sound of rattling wheels on rocky road.",
+"Four walls press in close, boxing you in. Shafts of light lance into the room from a tiny window against the ceiling, weaving between iron bars to pierce the stuffy gloom.",
+"The cold weight of iron manacles rests on your wrists and clamp onto your ankles. Pounds and pounds of hefty chain link you to the floor, jangling like a rattle of bones with every movement.",
+"You are in here for a reason.",
+"button:Treason, they say",
+"button:Framed for a murder",
+"button:Blasphemy. To them, at least.",
+"button:Self defense",
+"button:I was hungry"
+];
+let recordedHeight = [];
+let textElements = [];
+
+function moveAllText(){
+    const textboxes = document.querySelectorAll("p");
+
+    let newest = document.getElementsByClassName("newest");
+    let y = 0;
+    if(newest[0]){
+        y = newest[0].getBoundingClientRect().height;
+    }
+
+    textboxes.forEach((textbox) => {
+        if(!textbox.classList.contains("newest")){
+            var yPosStr = textbox.style.getPropertyValue("bottom");
+            var yPosSubstr = yPosStr.substring(0,yPosStr.indexOf("px"));
+            var yPos = Number(yPosSubstr);
+            yPos += y + linePadding;
+            textbox.style.setProperty("bottom", yPos + "px");
+        }
+    })
+}
+
+
+function addText(){
+    var newElement = document.createElement("p");
+    var text = document.createTextNode(dialogueArray[dialogueIndex]);
+    newElement.appendChild(text);
+    dialogueIndex += 1;
+    newElement.style.cssText += styleText;
+    const classes = newElement.classList;
+    classes.add("text-box");
+    classes.add("fade-in");
+    var element = document.getElementById("main");
+    element.appendChild(newElement);
+
+    let older = document.getElementsByClassName("newest");
+    newElement.setAttribute("index", dialogueIndex);
+    if(older && typeof(older[0]) != undefined){
+        if(older.length == 1){
+            older[0].classList.remove("newest");
+        }else{
+            for(var i = 0; i < older.length; i++){
+                older[i].classList.remove("newest");
+            }
+        }
+    }
+    newElement.classList.add("newest");
+
+    recordedHeight.push(newElement.getBoundingClientRect().height);
+    textElements.push(newElement);
+    console.log(recordedHeight[recordedHeight.length-1]);
+    // Cause it to leap up from below
+    setTimeout(() => {  newElement.style.setProperty("bottom","120px"); }, 10);
+}
+
+function createSingleButton(text, xPos){
+    var newButton = document.createElement("button");
+    var textNode = document.createTextNode(text);
+    newButton.appendChild(textNode);
+    const classes = newButton.classList;
+    classes.add("button");
+    classes.add("newest");
+    newButton.style.removeProperty("left");
+    newButton.style.marginBottom = "24px";
+    return newButton;
+}
+
+function addButtons(){
+    let older = document.getElementsByClassName("newest");
+    
+    if(older && typeof(older[0]) != undefined){
+        if(older.length == 1){
+            older[0].classList.remove("newest");
+        }else{
+            for(var i = 0; i < older.length; i++){
+                older[i].classList.remove("newest");
+            }
+        }
+    }
+
+    var buttonHolder = document.createElement("p");
+    buttonHolder.style.cssText += styleText;
+    const classes = buttonHolder.classList;
+    classes.add("text-box");
+    classes.add("fade-in");
+    classes.add("newest");
+
+    let button = createSingleButton(dialogueArray[dialogueIndex].substring(7));
+
+    buttonHolder.appendChild(button);
+
+    dialogueIndex ++;
+    while(dialogueIndex < dialogueArray.length && dialogueArray[dialogueIndex].substring(0,7) == "button:"){
+        button = createSingleButton(dialogueArray[dialogueIndex].substring(7));
+        buttonHolder.appendChild(button);
+        dialogueIndex ++;
+    }
+
+    var element = document.getElementById("main");
+    element.appendChild(buttonHolder);
+
+    recordedHeight.push(buttonHolder.getBoundingClientRect().height);
+    textElements.push(buttonHolder);
+    // Cause it to leap up from below
+    setTimeout(() => {  buttonHolder.style.setProperty("bottom","120px"); }, 10);
+
+
+}
+
+function moveTextAndAdd(){
+    addText();
+    moveAllText();
+}
+
+function moveTextAddButton(){
+    addButtons();
+    moveAllText();
+}
+
+function resizeAsNeeded(){
+    console.log("resizing, checking this many elements: " + textElements.length);
+    for(let i = 0; i < textElements.length; i++){
+        if(textElements[i].getBoundingClientRect().height != recordedHeight[i]){
+            let diff = textElements[i].getBoundingClientRect().height - recordedHeight[i];
+            console.log("alert! diff = " + diff);
+            console.log("applying from range " + (i - i) + " to " + 0);
+            for(let j = i - 1; j >= 0; j--){
+                let textbox = textElements[j];
+                var yPosStr = textbox.style.getPropertyValue("bottom");
+                var yPosSubstr = yPosStr.substring(0,yPosStr.indexOf("px"));
+                var yPos = Number(yPosSubstr);
+                yPos += diff;
+
+                let prev = textElements[j].style.getPropertyValue("transition");
+                textElements[j].style.setProperty("transition", "bottom 0s");
+
+                textElements[j].style.setProperty("bottom", yPos + "px");
+                textElements[j].style.setProperty("transition", prev);
+            }
+            recordedHeight[i] = textElements[i].getBoundingClientRect().height;
+        }
+    }
+}
+
+window.onresize = resizeAsNeeded;
+
+window.addEventListener("click", function(event) {
+    if(dialogueArray[dialogueIndex].substring(0,7) == "button:"){
+        moveTextAddButton();
+    }else{
+        moveTextAndAdd();
+    }
+});
+
+</script>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Free for Now</title>
+    <style>
+        @font-face {
+            font-family: 'amblebold';
+            src: url('fonts/amble-bold-webfont.woff2') format('woff2'),
+                url('fonts/amble-bold-webfont.woff') format('woff');
+            font-weight: normal;
+            font-style: normal;
+
+        }
+
+        @font-face {
+            font-family: 'amblebold_italic';
+            src: url('fonts/amble-bolditalic-webfont.woff2') format('woff2'),
+                url('fonts/amble-bolditalic-webfont.woff') format('woff');
+            font-weight: normal;
+            font-style: normal;
+
+        }
+
+        @font-face {
+            font-family: 'ambleitalic';
+            src: url('fonts/amble-italic-webfont.woff2') format('woff2'),
+                url('fonts/amble-italic-webfont.woff') format('woff');
+            font-weight: normal;
+            font-style: normal;
+
+        }
+
+        @font-face {
+            font-family: 'ambleregular';
+            src: url('fonts/amble-regular-webfont.woff2') format('woff2'),
+                url('fonts/amble-regular-webfont.woff') format('woff');
+            font-weight: normal;
+            font-style: normal;
+
+        }
+
+        html {
+            background-color: rgb(7, 2, 20);
+        }
+
+        *{
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            overflow: hidden; /* Hide scrollbars */
+        }
+
+        .newest{}
+
+        .text-box{
+            font-size: 32px;
+            /*font-family: amble-regular-webfont;*/
+            font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+            color: #ffffff;
+        }
+
+        .button{
+            background-color: #00000000;
+            color: #ffffff;
+            border: 2px solid #ffffff;
+            padding: 15px 32px;
+            text-align: center;
+            display: inline-block;
+            /*font-family: amble-regular-webfont;*/
+            font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+            font-size: 28px;
+            border-radius: 8px;
+            margin-right: 32px;
+            transition-duration: 800ms;
+        }
+        .button:hover {
+            background-color: #ffffffff;
+            color: rgb(7, 2, 20);
+        }
+
+        .fade-in{
+            animation: fade-in 1s linear;
+            animation-fill-mode: both;
+        }
+        @keyframes fade-in {
+            0%{
+                opacity: 0.0;
+            }
+            100%{
+                opacity: 1.0;
+            }
+        }
+
+        p {
+            color: #ffffff;
+            font-family: sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="main">
+        
+    </div>
+
+</body>
+
+<script type="text/javascript">
+if(dialogueArray[dialogueIndex].substring(0,7) == "button:"){
+    moveTextAddButton();
+}else{
+    moveTextAndAdd();
+}
+
+</script>
+</html>
