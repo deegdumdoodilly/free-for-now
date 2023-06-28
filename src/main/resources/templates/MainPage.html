@@ -3,180 +3,1107 @@
 <!DOCTYPE html>
 <script type="text/javascript">
 
-let linePadding = 20;
+let margin = "55px";
 
-let buttonPadding = 40;
+// Designates the 'current' line being processed. Whenever this is updated, it should start processing that line immediately
+let dialogueIndex = -1;
 
-let textFadeInSpeed = 0.005;
+// Pauses execution until the player clicks
+let unreadText = false;
 
-let currentlyWriting = false;
-
-const styleText = "position: absolute; bottom: -120px; left: 120px; transition: bottom 2s; transition-timing-function: cubic-bezier(0.1,1,0.1,1); margin-right: 320px; margin-bottom: 24px; margin-top: 24px;";
-let dialogueIndex = 0;
+// Equivalent to what is being shown on screen and what gets recorded into the log.
 let dialogueArray = [
-"The fog of sleep slowly disapates, fanned away by the sound of rattling wheels on rocky road.",
-"Four walls press in close, boxing you in. Shafts of light lance into the room from a tiny window against the ceiling, weaving between iron bars to pierce the stuffy gloom.",
-"The cold weight of iron manacles rests on your wrists and clamp onto your ankles. Pounds and pounds of hefty chain link you to the floor, jangling like a rattle of bones with every movement.",
-"You are in here for a reason.",
-"button:Treason, they say",
-"button:Framed for a murder",
-"button:Blasphemy. To them, at least.",
-"button:Self defense",
-"button:I was hungry"
+"[2023-06-07T20:16:03.674Z]1:narrator:The fog of sleep slowly disapates, fanned away by the sound of rattling wheels on rocky road.",
+"[2023-06-07T20:16:03.674Z]2:narrator:Four walls press in close, boxing you in. Shafts of light lance into the room from a tiny window against the ceiling, weaving between iron bars to pierce the stuffy gloom.",
+"[2023-06-07T20:16:03.674Z]3:narrator:The cold weight of iron manacles rests on your wrists and clamp onto your ankles. Pounds and pounds of hefty chain link you to the floor, jangling like a rattle of bones with every movement.",
+"[2023-06-07T20:16:03.674Z]4:narrator:You are in here for a reason.",
+"[2023-06-07T20:16:03.674Z]5:button-custom:",
+"[2023-06-07T20:16:03.674Z]6:button:Treason, they say",
+"[2023-06-07T20:16:03.674Z]7:button:Framed for a murder",
+"[2023-06-07T20:16:03.674Z]8:button:Blasphemy. To them, at least.",
+"[2023-06-07T20:16:03.674Z]9:button:Self defense",
+"[2023-06-07T20:16:03.674Z]10:button:I was hungry",
 ];
-let recordedHeight = [];
-let textElements = [];
 
-function moveAllText(){
-    const textboxes = document.querySelectorAll("p");
+// Mixed list of commands and their functions
+//let commands = ["if", commandIf, "endif", commandEndif, "else", commandElse, "elif", commandElif, "say", commandSay, "tack", commandTack, "log", commandLog, "button", commandButton, "customButton", commandCustomButton, "set", commandSet, "=", commandEqual, "!=", commandNequal, ">", commandGreater, "<", commandLessThan, ">=", commandGeq, "<=", commandLeq, "len", commandLen, "search", commandSearch, "string", commandString, "integer", commandInteger, "decimal", commandDecimal, "+", commandPlus, "-", commandMinus, "*", commandMultiply, "/", commandDivide, "^", commandRaise, "%", commandModulo, "random", commandRandom];
 
-    let newest = document.getElementsByClassName("newest");
-    let y = 0;
-    if(newest[0]){
-        y = newest[0].getBoundingClientRect().height;
+// Tracks the current variables.
+// Objects containing a type, name and value
+let variables = []
+let pointer = -1;
+let scriptPath = "";
+
+let script = [
+    "say \"The fog of sleep slowly disapates, fanned away by the sound of rattling wheels on rocky road.\"",
+    "say \"Four walls press in close, boxing you in. Shafts of light lance into the room from a tiny window against the ceiling, weaving between iron bars to pierce the stuffy gloom.\"",
+    "say \"The cold weight of iron manacles rests on your wrists and clamp onto your ankles. Pounds and pounds of hefty chain link you to the floor, jangling like a rattle of bones with every movement.\"",
+    "say \"You are in here for a reason.\"",
+    "customButton",
+    "button \"Treason, they say\"",
+    "button \"Framed for a murder\"",
+    "button \"Blasphemy, so they call it\"",
+    "button \"Self defense\"",
+    "button \"I was hungry\"",
+    "if ($answer = \"I was hungry\") (say \"oho ;)\")"
+]
+
+// Execution loop:
+// If there are no more lines, check again in 10 seconds, break.
+// Move to the next line, tokenize. Be mindful of parens, quotes and backslashes 
+// If there is only one token, issue the 'say' command
+// If there is no command, throw an error and skip
+// Else:
+//     use information from tokenize to determine data types of each argument.
+//     Evaluate each argument according to the requested data types.
+//         Issue recursive call if argument is an expression
+//         Replace the token with the evaluation + coercion
+//     Update stack frame, replacing tokens with their values
+//     Evaluate the whole expression according to the command / operator.
+
+function executeScript(){
+    if (pointer + 1 >= script.length){
+        // TODO: check again in 10 seconds
+        return;
     }
-
-    textboxes.forEach((textbox) => {
-        if(!textbox.classList.contains("newest")){
-            var yPosStr = textbox.style.getPropertyValue("bottom");
-            var yPosSubstr = yPosStr.substring(0,yPosStr.indexOf("px"));
-            var yPos = Number(yPosSubstr);
-            yPos += y + linePadding;
-            textbox.style.setProperty("bottom", yPos + "px");
-        }
-    })
+    pointer += 1;
+    let tokenization = tokenize(script[pointer]);
 }
 
+function getVariable(variableName){
+    for(let i = 0; i < variables.length; i++){
+        if(variables[i].name == variableName){
+            return 0;
+            // TODO: ACTUALLY RETURN SOMETHING, do it in token format
+        }
+    }
+}
 
-function addText(){
-    var newElement = document.createElement("p");
-    var text = document.createTextNode(dialogueArray[dialogueIndex]);
-    newElement.appendChild(text);
-    dialogueIndex += 1;
-    newElement.style.cssText += styleText;
-    const classes = newElement.classList;
-    classes.add("text-box");
-    classes.add("fade-in");
-    var element = document.getElementById("main");
-    element.appendChild(newElement);
+function isNumeric(type){
+    // TODO: check the variable's type
+    return (type == "decimal" || type == "boolean" || type == "integer" || type == "variable" || type == "expression");
+}
 
-    let older = document.getElementsByClassName("newest");
-    newElement.setAttribute("index", dialogueIndex);
-    if(older && typeof(older[0]) != undefined){
-        if(older.length == 1){
-            older[0].classList.remove("newest");
-        }else{
-            for(var i = 0; i < older.length; i++){
-                older[i].classList.remove("newest");
+function cast(token, desiredType){
+    // TODO: make this work for lists
+    if(token.type == desiredType){
+        return token.token;
+    }
+    if(token.type == "expression"){
+        return cast(evaluateTokenization(token.token), desiredType);
+    }else if(token.type == "variable"){
+        return cast(getVariable(token.token), desiredType);
+    }else{
+        switch(desiredType){
+            case "boolean":
+                return castToBoolean(token);
+            case "integer":
+                return castToInteger(token);
+            case "decimal":
+                return castToDecimal(token);
+            case "string":
+                return castToString(token);
+            case "number":
+                if(token.type == "string"){
+                    return castStringToNumber(token);
+                }
+                return token;
+            case "*":
+                return token;
+            default:
+                // TODO: error out, because case is not supported
+                return;
+        }
+    }
+}
+
+const trueStrings = ["true","t","yes","y"];
+const falseStrings = ["false","f","no","n"]
+
+function castToBoolean(token){
+    if(token.type == "string"){
+        if(parseFloat(token.token) != NaN) {
+            let decimal = parseFloat(token.token);
+            return {token: decimal > 0, type: "boolean"};
+        } else {
+            // If that didn't work, assume string is a true/false representatino
+            let booleanString = token.token.toLowerCase();
+            if(trueStrings.includes(booleanString)){
+                return {token: true, type: "boolean"};
+            }else if(falseStrings.includes(booleanString)){
+                return {token: false, type: "boolean"};
+            }
+            // TODO: Throw an error since this can't be parsed
+                return {token: false, type: "boolean"};
+        }
+    }
+    return {token: token.token > 0, type: "boolean"};
+}
+
+function castToInteger(token){
+    switch (token.type){
+        case "string":
+            try {
+                let decimal = parseFloat(token.token);
+                return Math.floor(decimal);
+            } catch (error) {
+                // TODO: Throw an error since this can't be parsed
+                return false;
+            }
+        case "boolean":
+            if (token.token){
+                return 1;
+            }
+            return 0;
+        case "decimal":
+            return Math.floor(token.token)
+    }
+}
+
+function castToDecimal(token){
+    switch (token.type){
+        case "string":
+            try {
+                let decimal = parseFloat(token.token);
+                return decimal;
+            } catch (error) {
+                // TODO: Throw an error since this can't be parsed
+                return false;
+            }
+        case "boolean":
+            if (token.token){
+                return 1.0;
+            }
+            return 0.0;
+        case "integer":
+            return 0.0 + token.token;
+    }
+}
+
+function castToString(token){
+    return "" + token.token;
+}
+
+function castStringToNumber(stringToken){
+    if(trueStrings.includes(stringToken.token.toLowerCase())){
+        return {token: true, type: "boolean"};
+    }else if(falseStrings.includes(stringToken.token.toLowerCase())){
+        return {token: false, type: "boolean"};
+    }else if(isNaN(parseFloat(stringToken))){
+        return NaN;
+    }
+    if(stringToken.token.includes(".")){
+        return {token: parseFloat(stringToken.token), type: "decimal"};
+    }else{
+        return {token: parseInt(stringToken.token), type: "integer"};
+    }
+}
+
+function matchNumericTypes(token1, token2){
+    if(token1.type == "string"){
+        token1 = castStringToNumber(token1);
+    }
+    if(token2.type == "string"){
+        token2 = castStringToNumber(token1);
+    }
+    if(token1.type == token2.type){
+        return;
+    }
+    let numberTypeIndex = Math.max(numberTypes.indexOf(token1.type),numberTypes.indexOf(token2.type));
+    token1 = cast(token1.token, numberTypes[numberTypeIndex]);
+    token2 = cast(token2.token, numberTypes[numberTypeIndex]);
+}
+
+// Terms should be cast to the same time before calling any of these
+let compareFunctions = [
+    {
+        signature: "=",
+        operation: function(leftTerm, rightTerm) { return {token: leftTerm == rightTerm, type: "boolean"}; }
+    },
+    {
+        signature: "!=",
+        operation: function(leftTerm, rightTerm) { return {token: leftTerm != rightTerm, type: "boolean"}; }
+    },
+    {
+        signature: ">",
+        operation: function(leftTerm, rightTerm) { return {token: leftTerm > rightTerm, type: "boolean"}; }
+    },
+    {
+        signature: "<",
+        operation: function(leftTerm, rightTerm) { return {token: leftTerm < rightTerm, type: "boolean"}; }
+    },
+    {
+        signature: ">=",
+        operation: function(leftTerm, rightTerm) { 
+            return {token: leftTerm >= rightTerm, type: "boolean"};
+         }
+    },
+    {
+        signature: "<=",
+        operation: function(leftTerm, rightTerm) { return {token: leftTerm <= rightTerm, type: "boolean"}; }
+    },
+]
+
+let mathematicFunctions = [
+    [
+        {
+            signature: "round",
+            preceedingTerms: 0,
+            antecedingTerms: 1,
+            termTypes: ["number"],
+            operation: function(terms){
+                return {token: Math.round(terms[0].token), type: terms[0].type};
+            }
+        },
+        {
+            signature: "floor",
+            preceedingTerms: 0,
+            antecedingTerms: 1,
+            termTypes: ["number"],
+            operation: function(terms){
+                return {token: Math.floor(terms[0].token), type: terms[0].type};
+            }
+        },
+        {
+            signature: "ceil",
+            preceedingTerms: 0,
+            antecedingTerms: 1,
+            termTypes: ["number"],
+            operation: function(terms){
+                return {token: Math.ceil(terms[0].token), type: terms[0].type};
+            }
+        }
+    ],
+    [
+        {
+            signature: "^",
+            preceedingTerms: 1,
+            antecedingTerms: 1,
+            termTypes: ["number", "number"],
+            operation: function(terms){
+                matchNumericTypes(terms[0], terms[1]);
+                if(terms[0].type < 0 && terms[0] != Math.trunc(terms[0])){
+                    // TODO, throw error due to invalid terms
+                }
+                return {token: Math.pow(terms[0].token,terms[1].token), type: terms[0].type};
+            }
+        }
+    ],
+    [
+        {
+            signature: "/",
+            preceedingTerms: 1,
+            antecedingTerms: 1,
+            termTypes: ["number", "number"],
+            operation: function(terms){
+                matchNumericTypes(terms[0], terms[1]);
+                if(terms[1].token == 0){
+                    // TODO, throw error due to invalid terms
+                }
+                let n = terms[0].token / terms[1].token;
+                if(terms[0].type = "integer"){
+                    n = Math.trunc(n);
+                }
+                return {token: n, type: terms[0].type};
+            }
+        },
+        {
+            signature: "*",
+            preceedingTerms: 1,
+            antecedingTerms: 1,
+            termTypes: ["number", "number"],
+            operation: function(terms){
+                matchNumericTypes(terms[0], terms[1]);
+                return {token: terms[0].token * terms[1].token, type: terms[0].type};
+            }
+        },
+        {
+            signature: "%",
+            preceedingTerms: 1,
+            antecedingTerms: 1,
+            termTypes: ["number", "number"],
+            operation: function(terms){
+                return {token: terms[0].token % terms[1].token, type: "string"};
+            }
+        }
+    ],
+    [
+        {
+            signature: "+",
+            preceedingTerms: 1,
+            antecedingTerms: 1,
+            termTypes: ["number", "number"],
+            operation: function(terms){
+                matchNumericTypes(terms[0], terms[1]);
+                return {token: terms[0].token + terms[1].token, type: terms[0].type};
+            }
+        },
+        {
+            signature: "-",
+            preceedingTerms: 1,
+            antecedingTerms: 1,
+            termTypes: ["number", "number"],
+            operation: function(terms){
+                matchNumericTypes(terms[0], terms[1]);
+                return {token: terms[0].token - terms[1].token, type: terms[0].type};
+            }
+        },
+        {
+            signature: "+",
+            preceedingTerms: 1,
+            antecedingTerms: 1,
+            termTypes: ["string", "string"],
+            operation: function(terms){
+                return {token: terms[0].token + terms[1].token, type: "string"};
+            }
+        }
+    ]
+]
+
+let functions = [
+    {
+        signature: "say",
+        overloads: [["string"]],
+        operation: function(tokens) {
+            addText(tokens[0]);
+        }
+    },
+    {
+        signature: "set",
+        overloads: [["keyword", "*"]],
+        operation: function(tokens) {
+            // TODO: error if not enough terms or wrong type
+            let variableName = tokens[0].token;
+            let valueToAssign = evaluate(tokens[1].token);
+            let i = 0;
+            while(i < variables.length){
+                if(varibles[i].name == variableName){
+                    // TODO: error if type mismatch
+                    variables[i].value = valueToAssign;
+                    return {token: valueToAssign, type: variables[i].type};
+                }
+                i++;
+            }
+            // No existing variable was found, so creating a new one 
+            let newVariable = {name: variableName, value: valueToAssign}
+            variables.push(newVariable);
+            return newVariable;
+        }
+    },
+    {
+        signature: "not",
+        overloads: [["number"]],
+        operation: function(tokens) {
+            if(tokens[0].type == "boolean"){
+                return {token: !tokens[0].token, type: "boolean"};
+            }
+            return {token: tokens[0].token * -1, type: tokens[0].type};
+        }
+    },
+    {
+        signature: "log",
+        overloads: [["*"]],
+        operation: function(tokens) {
+            console.log(tokens[0].token)
+        }
+    }
+];
+
+function argumentTypesMatch(arguments, argumentTypes){
+    if(arguments.length != argumentTypes.length){
+        return false;
+    }
+    for(let i = 0; i < arguments.length; i++){
+        if(argumentTypes[i] != "*"){ // We can skip all this if it asks for a wildcard
+            if(argumentTypes[i] == "number"){
+                if(!numberTypes.includes(arguments[i].type)){
+                    // Parameter is not a number, but it might be a cast-able string.
+                    if(arguments[i].type != "string" || castStringToNumber(arguments[i]) == Nan){
+                        return false
+                    }
+                }
+            }else if(argumentTypes[i] != arguments[i]){
+                return false
             }
         }
     }
-    newElement.classList.add("newest");
-
-    recordedHeight.push(newElement.getBoundingClientRect().height);
-    textElements.push(newElement);
-    console.log(recordedHeight[recordedHeight.length-1]);
-    // Cause it to leap up from below
-    setTimeout(() => {  newElement.style.setProperty("bottom","120px"); }, 10);
+    return true;
 }
 
-function createSingleButton(text, xPos){
+function castArguments(arguments, argumentTypes){
+    let result = [];
+    for(let i = 0; i < arguments.length; i++){
+        result.push(cast(arguments[i], argumentTypes[i]));
+    }
+    return result;
+}
+
+let charPointer = 0;
+
+let comparators = ["=","!=",">","<",">=","<="];
+let numberTypes = ["boolean", "integer", "decimal"];
+
+// Parse a keyword or a variable
+function parseKeyword(sentence, tokenization, tokenType){
+    let currentToken = "";
+    do{
+        if("+-/*^%=<>!".includes(sentence.charAt(charPointer))){
+            // Check if was a keyword we were already scanning, and this character interrupted it
+            if(currentToken.length){
+                // Check if this is the second half of a two-character comparator
+                if("!<>".includes(currentToken)){
+                    currentToken += sentence.charAt(charPointer);
+                    charPointer++;
+                }
+                if(tokenType == "keyword"){
+                    if(currentToken.toLowerCase() == "true"){
+                        tokenization.push({token: true, type: "boolean"});
+                    }else if(currentToken.toLowerCase() == "false"){
+                        tokenization.push({token: false, type: "boolean"});
+                    }else{
+                        tokenization.push({token: currentToken, type: tokenType});
+                    }
+                }else{
+                    tokenization.push({token: currentToken, type: tokenType});
+                }
+            }
+            tokenType = "keyword";
+            currentToken += sentence.charAt(charPointer);
+            charPointer ++;
+            if(charPointer < sentence.length && sentence.charAt(charPointer) == "="){
+                currentToken += "=";
+                charPointer ++;
+            }
+            tokenization.push({token: currentToken, type: tokenType});
+            return;
+        }
+        currentToken += sentence.charAt(charPointer);
+        charPointer ++;
+        if(comparators.includes(currentToken)){
+            tokenization.push({token: currentToken, type: tokenType});
+            return;
+        }
+    }while(sentence.charAt(charPointer) != ' ' && sentence.charAt(charPointer) != ')' && charPointer < sentence.length)
+    
+    if(tokenType == "keyword"){
+        if(currentToken.toLowerCase() == "true"){
+            tokenization.push({token: true, type: "boolean"});
+        }else if(currentToken.toLowerCase() == "false"){
+            tokenization.push({token: false, type: "boolean"});
+        }else{
+            tokenization.push({token: currentToken, type: tokenType});
+        }
+    }else{
+        tokenization.push({token: currentToken, type: tokenType});
+    }
+}
+
+
+function tokenize(sentence){
+    let tokenization = [
+        // Objects containing a 'token' and a 'type'
+        // Valid types are all data types, plus 'keyword', 'variable' and 'expression'
+    ];
+    let currentToken = "";
+    while(sentence.charAt(charPointer) != ")" && charPointer < sentence.length){
+        let currentChar = sentence.charAt(charPointer);
+        // Whitespace
+        if (currentChar == ' ' || currentChar == '\t'){
+            charPointer ++;
+        }
+
+        // String literal
+        else if (currentChar == '\"'){
+            charPointer++;
+            currentToken = "";
+            // TODO: try-catch for missing closing quote
+            while(sentence.charAt(charPointer) != '\"'){
+                if(charPointer >= sentence.length){
+                    // TODO: throw error
+                    console.log('no closing quote');
+                    return;
+                }
+                if(sentence.charAt(charPointer) == "\\"){
+                    charPointer ++;
+                }
+                currentToken += sentence.charAt(charPointer);
+                charPointer ++;
+            }
+            charPointer ++;
+            
+            tokenization.push({token: currentToken, type: "string"});
+        }
+
+        // Expression
+        else if (currentChar == '('){
+            charPointer++;
+            subTokenization = tokenize(sentence);
+            tokenization.push({token: subTokenization, type: "expression"});
+        }
+
+        // Number or lone '-'
+        else if ("0123456789.-".includes(currentChar)){
+            currentToken = "";
+            let numberType = "integer";
+            if(currentChar == '.'){
+                currentToken += "0.";
+                numberType = "decimal";
+                charPointer ++;
+            }else if(currentChar == '-'){
+                if(sentence.charAt(charPointer+1) == ")" && charPointer >= sentence.length){
+                    // TODO: Throw an error here
+                }else if(sentence.charAt(charPointer+1) == '('){
+                    // There is a negation of an expression
+                    charPointer++;
+                    let negationTokenization = tokenize(sentence);
+                    negationTokenization.prepend({token: "not", type: "keyword"});
+                    tokenization.push({token: negationTokenization, type: "expression"})
+                    continue;
+                }else if(sentence.charAt(charPointer+1) == '$'){
+                    // There is a negation of a variable
+                    charPointer+=2;               
+                    let negationTokenization = [ {token: "not", type: "keyword" } ];
+                    parseKeyword(sentence, negationTokenization, "variable", tokenization);
+                    tokenization.push({token: negationTokenization, type: "expression"});
+                    continue;
+                }else if(sentence.charAt(charPointer+1) == ' '){
+                    // If there is a following space
+                    currentToken = "";
+                    tokenization.push({token: "-", type: "keyword"});
+                    charPointer += 2;
+                    continue;
+                }else if(charPointer-1>=0 && sentence.charAt(charPointer-1) != ' ' && tokenization.length && tokenization[tokenization.length-1].type != "keyword"){
+                    // If there is no following space AND there is no previous space, and the previous token could not reasonably be used in a subtraction (i.e. it is a keyword)
+                    currentToken = "";
+                    tokenization.push({token: "-", type: "keyword"});
+                    charPointer += 1;
+                    continue;
+                }else if(sentence.charAt(charPointer + 1) == '.'){
+                    currentToken += "-0."
+                    numberType = "decimal";
+                    charPointer += 2;
+                }
+            }
+            do {
+                if("+-/*^%=!<>".includes(sentence.charAt(charPointer)) && (currentToken.length || sentence.charAt(charPointer) != "-")){
+                    if(currentToken.length){
+                        if(numberType == "decimal"){
+                            tokenization.push({token: parseFloat(currentToken), type: numberType});
+                        }else{
+                            tokenization.push({token: parseInt(currentToken), type: numberType});
+                        }
+                    }
+                    currentToken = sentence.charAt(charPointer);
+                    charPointer++;
+                    numberType = "keyword";
+                    if(charPointer < sentence.length && sentence.charAt(charPointer) == "="){
+                        charPointer++;
+                        currentToken += "=";
+                    }
+                    break;
+                }
+                if(false){
+                    // TODO: check for invalid character in number
+                }
+                if(sentence.charAt(charPointer) == '.'){
+                    numberType = "decimal";
+                }
+                currentToken += sentence.charAt(charPointer);
+                charPointer++;
+            } while (sentence.charAt(charPointer) != ' ' && sentence.charAt(charPointer) != ')' && charPointer < sentence.length && numberType != "keyword");
+            if(numberType == "decimal"){
+                tokenization.push({token: parseFloat(currentToken), type: numberType});
+            }else if(numberType == "integer"){
+                tokenization.push({token: parseInt(currentToken), type: numberType});
+            }else{
+                tokenization.push({token: currentToken, type: numberType});
+            }
+        }
+
+        // Variable
+        else if(currentChar == '$') {
+            charPointer ++;
+            parseKeyword(sentence, tokenization, "variable");
+        }
+
+        // Keyword
+        else {
+            parseKeyword(sentence, tokenization, "keyword");
+        }
+    }
+
+    charPointer ++;
+
+    return tokenization;
+}
+
+function evaluateToken(token){
+    // TODO: Evaluate just an individual token, rather than an array
+    switch(token.type){
+        case "expression":
+            return evaluateTokenization(token.token, null);
+        case "variable":
+            return getVariable(token.token);
+        default:
+            return token;
+    }
+}
+
+// Takes any tokenization and executes its contents, returning a single token value
+// If there are terms on the right end of the tokenization that cannot be factored into the result, they are returned in excessTokens
+
+// Method is as follows:
+// If the first term is a function, call evaluate recursively on all the following tokens to reduce them to parameters, then run the appropraite function.
+//      If there is no appropriate function, try running evaluate on the excess arguments.
+// If the first term is not a function, proceed with order of operations and keep a list of excess tokens for each operation.
+
+function evaluateTokenization(tokenization, excessTokens){
+    if(excessTokens == null){
+        excessTokens = [];
+    }
+    // If this is a single token, return it
+    if(tokenization.length == 1){
+        return evaluateToken(tokenization[0]);
+    }
+    // Evaluate keywords, which represent functions
+    if(tokenization[0].type == "keyword"){
+
+        // TODO: check for logicals
+       
+        for(let functionIndex = 0; functionIndex < functions.length; functionIndex++){
+            if(functions[functionIndex].signature == tokenization[0].token){
+                // Found the function, now we refine the arguments.
+                 // In case the arguments themselves contain keywords and expressions, we evaluate those now to know how many arguments we have
+                let thisExcessTokens = [];
+                let arguments = [evaluateTokenization(tokenization.slice(1), thisExcessTokens)];
+                let summarizedArguments = arguments.concat(thisExcessTokens);
+                // Check if we already have a match with the current arguments + excess
+                for(let overloadIndex = 0; overloadIndex < functions[functionIndex].overloads.length; overloadIndex++){
+                    if(argumentTypesMatch(summarizedArguments, functions[functionIndex].overloads[overloadIndex])){
+                        let recastArguments = castArguments(arguments,functions[functionIndex].overloads[overloadIndex]);
+                        return functions[functionIndex].operation(recastArguments);;
+                    }
+                }
+                // If no match was found, we try evaluating the excess tokens
+
+                while(thisExcessTokens.length){
+                    // Evaluate the excess, and store the new excess from that evaluation
+                    let newThisExcessTokens = [];
+                    arguments.push(evaluateTokenization(thisExcessTokens, newThisExcessTokens));
+                    thisExcessTokens = newThisExcessTokens;
+
+                    // Continue trying until there is nothing left to evaluate
+                    for(let overloadIndex = 0; overloadIndex < functions[functionIndex].overloads.length; overloadIndex++){
+                        if(argumentTypesMatch(arguments.concat(thisExcessTokens), functions[functionIndex].overloads[overloadIndex])){
+                            let recastArguments = castArguments(arguments,functions[functionIndex].overloads[overloadIndex]);
+                            return functions[functionIndex].operation(recastArguments);;
+                        }
+                    }
+                }
+                // TODO: no matching overload found, throw error
+            }
+        }
+    }
+    // If there was no keyword, begin processing the 'or' arguments
+    result = evaluateOr(tokenization, excessTokens);
+    return result;
+}
+
+function evaluateOr(tokenization, excessTokens){
+    if(tokenization.length == 1){
+        return evaluateToken(tokenization[0]);
+    }
+    let term = [];
+    let result = false;
+    for(var tokenIndex = 0; tokenIndex < tokenization.length; tokenIndex++){
+        if(tokenization[tokenIndex].type == "keyword" && tokenization[tokenIndex].token == "or"){
+            // TODO: Check if there is no term
+            let value = castToBoolean(evaluateTokenization(term, null));
+            if(value.token){
+                result = true;
+            }
+            term = [];
+        }else{
+            term.push(tokenization[tokenIndex]);
+        }
+    }
+    if(term.length == tokenization.length){
+        // If there was no 'or' operator
+        return evaluateAnd(term, excessTokens);
+    }else{
+        if(result){
+            evaluateTokenization(term, excessTokens);
+            return {token: true, type: "boolean"};
+        }
+        return castToBoolean(evaluateTokenization(term, excessTokens));
+    }
+}
+
+function evaluateAnd(tokenization, excessTokens){
+    if(tokenization.length == 1){
+        return evaluateToken(tokenization[0]);
+    }
+    let term = [];
+    let result = true;
+    for(var tokenIndex = 0; tokenIndex < tokenization.length; tokenIndex++){
+        if(tokenization[tokenIndex].type == "keyword" && tokenization[tokenIndex].token == "and"){
+            // TODO: Check if there is no term
+            let value = castToBoolean(evaluateTokenization(term, null));
+            if(!value.token){
+                result = false;
+            }
+            term = [];
+        }else{
+            term.push(tokenization[tokenIndex]);
+        }
+    }
+    if(term.length == tokenization.length){
+        // If there was no 'and' operator
+        return evaluateComparator(term, excessTokens);
+    }else{
+        if(!result){
+            evaluateComparator(term, excessTokens);
+            return {token: false, type: "boolean"};
+        }
+        return castToBoolean(evaluateComparator(term, excessTokens));
+    }
+}
+
+function evaluateComparator(tokenization, excessTokens){
+    if(tokenization.length == 1){
+        return evaluateToken(tokenization[0]);
+    }
+    let firstTerm = [];
+    let result = null;
+    for(let tokenIndex = 0; tokenIndex < tokenization.length; tokenIndex++){
+        if(tokenization[tokenIndex].type == "keyword" && comparators.includes(tokenization[tokenIndex].token) ){
+            // TODO: Check if there is no term on one side or the other
+            let firstValue = evaluateTokenization(firstTerm, null);
+            let secondValue = evaluateTokenization(tokenization.slice(tokenIndex + 1), excessTokens);
+            let firstValueCast, secondValueCast;
+            if(numberTypes.includes(firstValue.type) && numberTypes.includes(secondValue.type)){
+                // Find the higher-order numeric type between them. 
+                let numberTypeIndex = Math.max(numberTypes.indexOf(firstValue.type),numberTypes.indexOf(firstValue.type));
+                firstValueCast = cast(firstValue, numberTypes[numberTypeIndex]);
+                secondValueCast = cast(secondValue, numberTypes[numberTypeIndex]);
+            }
+            for(let functionIndex = 0; functionIndex < compareFunctions.length; functionIndex++){
+                if(compareFunctions[functionIndex].signature == tokenization[tokenIndex].token){
+                    return compareFunctions[functionIndex].operation(firstValueCast, secondValueCast);
+                }
+            }
+        }else{
+            firstTerm.push(tokenization[tokenIndex]);
+        }
+    }
+    // If we got here, then there wasn't a comparator in this tokenization
+    result = evaluateMathematical(tokenization, excessTokens);
+    return result;
+}
+
+function evaluateMathematical(tokenization, excessTokens, operationIndex = 0){
+    if(tokenization.length == 1){
+        return evaluateToken(tokenization[0]);
+    }
+    let results = [];
+    // Process only a specific value of operationIndex, and call recursively
+    // For each term, if it is not a keyword, add it to result.
+    // If it is a keyword, pull values from before (remove them from result) and ahead (push tokenIndex), calculate, and add to result.
+    for(let tokenIndex = 0; tokenIndex < tokenization.length; tokenIndex++){
+        let functionIndex = mathematicFunctions[operationIndex].length;
+        if(tokenization[tokenIndex].type == "keyword"){
+            // Check if it's a valid keyword
+            for(functionIndex = 0; functionIndex < mathematicFunctions[operationIndex].length; functionIndex++){
+                if(tokenization[tokenIndex].token == mathematicFunctions[operationIndex][functionIndex].signature){
+                    // Keyword is valid, try to apply it.
+                    let mathFunction = mathematicFunctions[operationIndex][functionIndex];
+                    // Check that there are enough terms
+                    if(results.length >= mathFunction.preceedingTerms && tokenization.length - tokenIndex > mathFunction.antecedingTerms){
+                        let arguments = results.slice(results.length-mathFunction.preceedingTerms).concat(tokenization.slice(tokenIndex+1,tokenIndex+1+mathFunction.antecedingTerms));
+                        // Evaluate as needed.
+                        for(let argumentIndex = 0; argumentIndex < arguments.length; argumentIndex ++){
+                            if(arguments[argumentIndex].type == "expression" || arguments[argumentIndex].type == "variable"){
+                                arguments[argumentIndex] = evaluateTokenization(arguments[argumentIndex].token);
+                            }
+                        }
+                        if ( argumentTypesMatch(arguments, mathFunction.termTypes)) {
+                            // Function and arguments are valid, get the result
+                            let mathFunctionResult = mathFunction.operation(arguments);
+                            // Consume all terms that were used in the operation
+                            // Pop all consumed arguments
+                            for(let i = 0; i < mathFunction.preceedingTerms; i++){
+                                results.pop();
+                            }
+                            tokenIndex += mathFunction.antecedingTerms;
+                            // And replace them with the result
+                            results.push(mathFunctionResult);
+                            break;
+                        } 
+                    }
+                }
+            }
+            // If we didn't find a valid function, then add the term to results
+            if(functionIndex == mathematicFunctions[operationIndex].length){
+                results.push(tokenization[tokenIndex]);
+            }
+        }else{
+            results.push(tokenization[tokenIndex]);
+        }
+    }
+    
+    if(operationIndex < mathematicFunctions.length - 1){
+        let response = evaluateMathematical(results, excessTokens, operationIndex + 1);
+        return response;
+    }else{
+        excessTokens = results.slice(1);
+        return results[0];
+    }
+}
+
+
+let tests = [
+"1+2=3", true,
+"5 + 1 !=6", false,
+"3+ 2 > 4", true,
+"1 +3<4", false,
+"3-1>=2", true,
+"2 - 1 <= 0", false,
+"3 + -1", 2,
+"3+-1+-2+2", 2, 
+"3 + -1 + 1 - -1", 4,
+"1.5 * 2", 3,
+"10/-5", -2,
+"10%3", 1,
+"1 = 1", true,
+"2+2 = 4", true,
+"2+2=4", true,
+"4.4 > 5", false,
+"99/2>=99", false,
+"2*3>=3*2", true,
+"3^3+3 = 10*3+-1+1", true,
+"(2+3)*2 = 10", true,
+"((19+9)-1) / (1+1+1) != (3^3) / 3", false,
+"((19+9)-1) / (1+1+1) = (3^3) / 3", true,
+"round 1.2", 1,
+"ceil 2.2 = floor 3.9", true,
+true
+]
+
+let testStartNumber = 0;
+let testEndNumber = 100;
+
+if (testEndNumber > (tests.length-1) / 2){
+    testEndNumber = (tests.length-1) / 2;
+}
+charPointer = 0;
+let passedTests = 0;
+for(let i = testStartNumber*2; i < tests.length - 1 && i/2 < testEndNumber; i+=2){
+    charPointer = 0;
+    try{
+        let testTokenization = tokenize(tests[i]);
+        let testOutcome = evaluateTokenization(testTokenization);
+        if(tests[i+1] == testOutcome.token){
+            passedTests ++;
+        }else{
+            console.log('failed test #' + i/2 + ", expected " + tests[i+1] + ", got " + testOutcome.token);
+            console.log('Expression: ' + tests[i] + '\nTokenization: ');
+            console.log(testTokenization);
+        }
+    } catch (error){
+        console.log('error on test #' + i/2 + ", " + error.toString());
+    }
+}
+
+const failedTests = (testEndNumber - testStartNumber) - passedTests;
+console.log("Tests passed:  " + passedTests + "\nTests failed:  " + failedTests + '\nTests skipped: ' + ((tests.length-1)/2 - testEndNumber + testStartNumber));
+
+if(failedTests == 0){
+    console.log("=== [[ PASSED ]] ===");
+}else{
+    console.log("!!! [[ FAILED ]] !!!");
+}
+
+
+// Reference to the container that holds buttons, which is unique 
+let buttonHolder = document.createElement("p");
+
+// References the name of the file in the s3 bucket
+let logFilename = "test2.log"
+
+// Local copy of the log file 
+let log = "";
+
+// Retrieves the log from the s3 bucket, stores it in the 'log' variable, and calls the provided function
+function fetchLog(nextFunction){
+    var request = new XMLHttpRequest();
+    request.open('GET', 'https://s3.us-west-2.amazonaws.com/storyteller-log/' + logFilename, true);
+    request.send(null);
+    request.onreadystatechange = function () {
+        if (request.readyState === 4 && request.status === 200) {
+            log = request.responseText;
+            nextFunction();
+        }
+    }
+}
+
+// Updates the log in the s3 bucket by appending the provided text to it
+function appendToLog(content){
+    
+    let now = new Date();
+    let timestamp = now.toISOString();
+    let newBody = "[" + timestamp + log + '\n' + content
+    fetch("https://s3.us-west-2.amazonaws.com/storyteller-log/" + logFilename,
+            {
+                method: "PUT",
+                headers: {'Content-Type': 'text/plain'}, 
+                body:newBody
+            });
+}
+
+// Checks to see if there is a line after the current one 
+function isNextLine(){ return dialogueIndex + 1 < dialogueArray.length; }
+
+function currentLineType(){
+    let thisLine = dialogueArray[dialogueIndex];
+    let thisLineWithoutTimestamp = thisLine.substring(thisLine.indexOf("]")+1);
+    let thisLineWithoutID = thisLineWithoutTimestamp.substring(thisLineWithoutTimestamp.indexOf(":") +1)
+    return thisLineWithoutID.substring(0,thisLineWithoutID.indexOf(":")); 
+}
+
+function nextLineType(){
+    let thisLine = dialogueArray[dialogueIndex + 1];
+    let thisLineWithoutTimestamp = thisLine.substring(thisLine.indexOf("]")+1);
+    let thisLineWithoutID = thisLineWithoutTimestamp.substring(thisLineWithoutTimestamp.indexOf(":") +1)
+    return thisLineWithoutID.substring(0,thisLineWithoutID.indexOf(":")); 
+}
+
+function currentLineID(){
+    let thisLine = dialogueArray[dialogueIndex];
+    let thisLineWithoutTimestamp = thisLine.substring(thisLine.indexOf("]")+1);
+    return thisLineWithoutTimestamp.substring(0,thisLineWithoutTimestamp.indexOf(":")); 
+}
+
+function currentLineText(){
+    let thisLine = dialogueArray[dialogueIndex];
+    let thisLineWithoutTimestamp = thisLine.substring(thisLine.indexOf("]")+1);
+    let thisLineWithoutID = thisLineWithoutTimestamp.substring(thisLineWithoutTimestamp.indexOf(":") +1);
+    return thisLineWithoutID.substring(thisLineWithoutID.indexOf(":") + 1);
+}
+
+function addText(nextLine){
+    var newElement = document.createElement("p");
+    var text = document.createTextNode(nextLine);
+    newElement.appendChild(text);
+    newElement.classList.add("narration");
+    var flexbox = document.getElementById("flexbox");
+    var location = flexbox.children[1];
+    flexbox.insertBefore(newElement, location);
+    newElement.style.setProperty("margin-top", "-" + newElement.offsetHeight + "px");
+}
+
+function addPreceedingText(nextLine){
+    var newElement = document.createElement("p");
+    var text = document.createTextNode(nextLine);
+    newElement.appendChild(text);
+    newElement.classList.add("player");
+    var flexbox = document.getElementById("flexbox");
+    var location = flexbox.children[2];
+    flexbox.insertBefore(newElement, location);
+    newElement.style.setProperty("margin-top", "-" + newElement.offsetHeight + "px");
+}
+
+function createSingleButton(text){
     var newButton = document.createElement("button");
     var textNode = document.createTextNode(text);
-    newButton.appendChild(textNode);
-    const classes = newButton.classList;
-    classes.add("button");
-    classes.add("newest");
-    newButton.style.removeProperty("left");
-    newButton.style.marginBottom = "24px";
+    newButton.prepend(textNode);
+    newButton.classList.add("button");
+    newButton.addEventListener('click', function(event) {
+        addPreceedingText(newButton.innerHTML);
+    })
     return newButton;
 }
 
-function addButtons(){
-    let older = document.getElementsByClassName("newest");
-    
-    if(older && typeof(older[0]) != undefined){
-        if(older.length == 1){
-            older[0].classList.remove("newest");
-        }else{
-            for(var i = 0; i < older.length; i++){
-                older[i].classList.remove("newest");
-            }
+function createCustomButton(){
+    var newButton = document.createElement("input");
+    var textNode = document.createTextNode("input");
+    newButton.prepend(textNode);
+    newButton.placeholder = "Something else?";
+    newButton.addEventListener('keydown', function(event) {
+        if (event.key == 'Enter' || event.keyCode == 13){
+            addPreceedingText(newButton.value);
+            newButton.value = "";
         }
+    } );
+    newButton.classList.add("input-button");
+    return newButton;
+}
+
+function addButtons(nextLine){
+    
+    while (buttonHolder.firstChild) {
+        buttonHolder.removeChild(buttonHolder.firstChild);
     }
+    buttonHolder.classList.add('narration');
 
-    var buttonHolder = document.createElement("p");
-    buttonHolder.style.cssText += styleText;
-    const classes = buttonHolder.classList;
-    classes.add("text-box");
-    classes.add("fade-in");
-    classes.add("newest");
+    let button;
 
-    let button = createSingleButton(dialogueArray[dialogueIndex].substring(7));
-
+    if(currentLineType() == "button-custom"){
+        button = createCustomButton();
+    }else{
+        button = createSingleButton(currentLineText());
+    }
     buttonHolder.appendChild(button);
 
-    dialogueIndex ++;
-    while(dialogueIndex < dialogueArray.length && dialogueArray[dialogueIndex].substring(0,7) == "button:"){
-        button = createSingleButton(dialogueArray[dialogueIndex].substring(7));
+    buttonHolder.appendChild(button);
+    // Add more buttons while they exist
+    while(isNextLine() && nextLineType().substring(0,6) == "button"){
+        dialogueIndex += 1;
+        if(currentLineType() == "button-custom"){
+            button = createCustomButton();
+        }else{
+            button = createSingleButton(currentLineText());
+        }
         buttonHolder.appendChild(button);
-        dialogueIndex ++;
     }
 
-    var element = document.getElementById("main");
-    element.appendChild(buttonHolder);
-
-    recordedHeight.push(buttonHolder.getBoundingClientRect().height);
-    textElements.push(buttonHolder);
-    // Cause it to leap up from below
-    setTimeout(() => {  buttonHolder.style.setProperty("bottom","120px"); }, 10);
-
-
+    var flexbox = document.getElementById("flexbox");
+    var location = flexbox.children[1];
+    flexbox.insertBefore(buttonHolder, location);
+    buttonHolder.style.setProperty("margin-top", "-" + buttonHolder.offsetHeight + "px");
 }
 
-function moveTextAndAdd(){
-    addText();
-    moveAllText();
-}
 
-function moveTextAddButton(){
-    addButtons();
-    moveAllText();
-}
-
-function resizeAsNeeded(){
-    console.log("resizing, checking this many elements: " + textElements.length);
-    for(let i = 0; i < textElements.length; i++){
-        if(textElements[i].getBoundingClientRect().height != recordedHeight[i]){
-            let diff = textElements[i].getBoundingClientRect().height - recordedHeight[i];
-            console.log("alert! diff = " + diff);
-            console.log("applying from range " + (i - i) + " to " + 0);
-            for(let j = i - 1; j >= 0; j--){
-                let textbox = textElements[j];
-                var yPosStr = textbox.style.getPropertyValue("bottom");
-                var yPosSubstr = yPosStr.substring(0,yPosStr.indexOf("px"));
-                var yPos = Number(yPosSubstr);
-                yPos += diff;
-
-                let prev = textElements[j].style.getPropertyValue("transition");
-                textElements[j].style.setProperty("transition", "bottom 0s");
-
-                textElements[j].style.setProperty("bottom", yPos + "px");
-                textElements[j].style.setProperty("transition", prev);
-            }
-            recordedHeight[i] = textElements[i].getBoundingClientRect().height;
+function processNextLine(){
+    if(isNextLine()){
+        dialogueIndex += 1;
+        if(currentLineType() == "narrator"){
+            addText(currentLineText());
+        }
+        if(currentLineType().substring(0,6) == "button"){
+            addButtons(currentLineText());
         }
     }
 }
 
-window.onresize = resizeAsNeeded;
+function sendDiscordNotif(){
+    const payload = {
+        content: 'Hello,<@319222181022138370> !',
+    };
+    
+    fetch("https://discord.com/api/webhooks/1121103955276091463/WWR2S0GXVkLTAW6FC4wzGjw67DXNj6SJ-1Ocgi6xWPPRHpuIVH2mQKUy7xGn20ofI_62",
+            {
+                method: "POST",
+                headers: {
+                    'Content-Type': 'application/json'
+                }, 
+                body: JSON.stringify(payload)
+            });
+}
 
 window.addEventListener("click", function(event) {
-    if(dialogueArray[dialogueIndex].substring(0,7) == "button:"){
-        moveTextAddButton();
-    }else{
-        moveTextAndAdd();
-    }
+    document.getElementById('dot_bounce').beginElement();
+    document.getElementById('shadow_bounce').beginElement();
+    processNextLine();
 });
 
 </script>
@@ -230,36 +1157,45 @@ window.addEventListener("click", function(event) {
             padding: 0;
         }
 
-        body {
-            overflow: hidden; /* Hide scrollbars */
-        }
-
-        .newest{}
-
-        .text-box{
-            font-size: 32px;
-            /*font-family: amble-regular-webfont;*/
-            font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
-            color: #ffffff;
-        }
-
         .button{
             background-color: #00000000;
             color: #ffffff;
             border: 2px solid #ffffff;
-            padding: 15px 32px;
+            padding: 10px 16px;
             text-align: center;
             display: inline-block;
             /*font-family: amble-regular-webfont;*/
             font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
-            font-size: 28px;
+            font-size: 22px;
             border-radius: 8px;
-            margin-right: 32px;
-            transition-duration: 800ms;
+            margin-right: 16px;
+            margin-bottom: 16px;
+            transition-duration: 500ms;
         }
         .button:hover {
             background-color: #ffffffff;
             color: rgb(7, 2, 20);
+        }
+
+        .input-button{
+            background-color: #00000000;
+            color: #ffffff;
+            border: 2px solid #ffffff;
+            padding: 10px 16px;
+            text-align: center;
+            display: inline-block;
+            /*font-family: amble-regular-webfont;*/
+            font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+            font-size: 22px;
+            border-radius: 8px;
+            margin-right: 16px;
+            margin-bottom: 16px;
+        }
+        ::placeholder{
+            color:rgb(156, 156, 156);
+            font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+            font-size: 22px;
+            font-style: italic;
         }
 
         .fade-in{
@@ -268,6 +1204,9 @@ window.addEventListener("click", function(event) {
         }
         @keyframes fade-in {
             0%{
+                opacity: 0.0;
+            }
+            10%{
                 opacity: 0.0;
             }
             100%{
@@ -279,21 +1218,132 @@ window.addEventListener("click", function(event) {
             color: #ffffff;
             font-family: sans-serif;
         }
+        
+        .flexbox{
+            display: flex;
+            flex-direction: column-reverse;
+            align-items: start;
+            height: 100vh;
+            overflow: auto;
+        }
+        .flexbox::-webkit-scrollbar {
+            display: show;
+            width: 10px;
+            background: none;
+            margin-right: 5px;
+        }
+        .flexbox::-webkit-scrollbar-track {
+            display: none;
+            margin-right: 5px;
+        }
+
+        .flexbox::-webkit-scrollbar-thumb {
+            background: #ffffffa9;
+            border-radius: 6px;
+        }
+
+        .player{
+            font-size: 24px;
+            /*font-family: amble-regular-webfont;*/
+            font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+            color: #7dedfc;
+            padding: 10px;
+            margin: 0px 15px 0px 15px;
+            justify-self: right;
+            animation: size-up 1s cubic-bezier(0.1, 0.0, 0.1, 1.0), fade-in 2s linear;
+            animation-fill-mode: both;
+        }
+
+        .narration{
+            font-size: 24px;
+            /*font-family: amble-regular-webfont;*/
+            font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+            color: #ffffff;
+            padding: 10px;
+            margin: 0px 15px 0px 15px;
+            justify-self: right;
+            animation: size-up 1s cubic-bezier(0.1, 0.0, 0.1, 1.0), fade-in 2s linear;
+            animation-fill-mode: both;
+        }
+        @keyframes size-up {
+            100%{
+                margin-top: 5px;
+            }
+        }
+
+        .dot {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            bottom: 30px;
+            /* animation: bounce 2s linear;
+            animation-iteration-count: infinite; */
+        }
+        @keyframes bounce {
+            0%{
+                width: 50px;
+                height: 50px;
+            }
+            50%{
+                width: 30px;
+                height: 30px;
+            }
+            100%{
+                width: 50px;
+                height: 50px;
+            }
+        }
     </style>
 </head>
 <body>
     <div id="main">
-        
+        <div class="flexbox" id="flexbox">
+            <div style="margin: 50px 0px 100px 0px;"></div>
+        </div>
+        <svg class="dot" version="1.1" width="100" height="200">
+            <defs>
+                <filter id="f1" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur in="SourceGraphic" stdDeviation="5" />
+                </filter>
+            </defs>
+            <circle id="shadow" cx="50" cy="150" r="15" fill="rgb(187,182,210)" filter="url(#f1)">
+                <animate id="shadow_bounce"
+                    attributeName="r"
+                    dur="2s"
+                    calcMode="spline"
+                    repeatCount="indefinite"
+                    values="13; 25; 13"
+                    keyTimes="0; 0.5; 1"
+                    keySplines="0 0.5 0.5 1; 0.5 0 1 0.5" />
+                <animate id="shadow_fade_in"
+                    attributeName="fill"
+                    dur="1s"
+                    repeatCount="1"
+                    values="rgb(187,182,210,0);rgb(187,182,210,1)"
+                    keyTimes="0; 1" />
+            </circle>
+            <circle id="dot" cx="50" cy="150" r="10" fill="white">
+                <animate id="dot_bounce"
+                    attributeName="r"
+                    dur="2s"
+                    calcMode="spline"
+                    repeatCount="indefinite"
+                    values="10; 20; 10"
+                    keyTimes="0; 0.5; 1"
+                    keySplines="0 0.5 0.5 1; 0.5 0 1 0.5" />
+                <animate id="dot_fade_in"
+                    attributeName="fill"
+                    dur="1s"
+                    repeatCount="1"
+                    values="rgb(255,255,255,0);rgb(255,255,255,1)"
+                    keyTimes="0;  1" />
+            </circle>
+        </svg>
     </div>
 
 </body>
 
 <script type="text/javascript">
-if(dialogueArray[dialogueIndex].substring(0,7) == "button:"){
-    moveTextAddButton();
-}else{
-    moveTextAndAdd();
-}
-
+//fetchLog(processNextLine);
 </script>
 </html>

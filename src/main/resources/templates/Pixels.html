@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<script type="text/javascript">
+
+</script>
+
+<head>
+    <style>
+        body {
+            overflow: hidden; /* Hide scrollbars */
+        }
+    </style>
+    <meta charset="UTF-8">
+    <title>Pixels</title>
+
+    <script type="text/javascript">
+        var ctx;
+        var canvas;
+        var count = 1;
+        var size = 10;
+        var halfSize = size / 2;
+
+        var x = [];
+        var y = [];
+
+        var xVel = [];
+        var yVel = [];
+
+        function startSim() {
+            canvas = document.getElementById("canvas");
+            canvas.style.display = "block";
+            ctx = canvas.getContext("2d");
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            setInterval(update, 200);
+
+            var interval = canvas.width / (count + 1);
+            for(var i = 0; i < count; i ++){
+                x.push(interval * (i+1));
+                y.push(canvas.height / 2);
+                xVel.push(100);
+                yVel.push(0);
+            }
+        }
+
+        function update(){
+            ctx.fillStyle = "#ffffff";
+            ctx.fillRect(0,0,canvas.width, canvas.height);
+
+            ctx.fillStyle = "#000000";
+
+            // Draw
+            var width = canvas.width;
+            var doubleWidth = width * 2;
+            for(var i = 0; i < count; i++){
+
+                //Gravity
+
+                //Velocity
+                x[i] += xVel[i];
+                y[i] += yVel[i];
+
+                //Collisions
+                console.log('original x')
+                x[i] = width - Math.abs((x[i]%doubleWidth)- width);
+                
+                //Draw
+                ctx.fillRect(x[i]-halfSize,y[i]-halfSize,size,size);
+            }
+        }
+
+        function resize_canvas(){
+            canvas.width  = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+
+
+    </script>
+</head>
+
+<body onresize="resize_canvas()" onload="startSim()">
+        <canvas id="canvas" style="display: block;">Your browser doesn't support canvas</canvas>
+</body>
